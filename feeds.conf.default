@@ -2,7 +2,7 @@ src-git passwall_packages https://github.com/reaichangzai/openwrt-passwall-packa
 src-git passwall_luci https://github.com/reaichangzai/openwrt-passwall.git;main
 src-git nss_packages https://github.com/qosmio/nss-packages.git
 src-git sqm_scripts_nss https://github.com/JuliusBairaktaris/sqm-scripts-nss.git
-src-git packages https://github.com/immortalwrt/packages.git
+src-git packages https://github.com/reaichangzai/immortalwrt-packages.git
 src-git luci https://github.com/immortalwrt/luci.git
 src-git routing https://github.com/openwrt/routing.git
 src-git telephony https://github.com/openwrt/telephony.git
