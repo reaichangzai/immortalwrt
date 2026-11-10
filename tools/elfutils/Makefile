@@ -126,7 +126,6 @@ Hooks/HostCompile/Pre := Host/Gnulib/Compile $(Hooks/HostCompile/Pre)
 
 define Host/Configure
 	$(call Host/Configure/Default)
-	$(call Host/Uninstall)
 endef
 
 define Host/Uninstall
