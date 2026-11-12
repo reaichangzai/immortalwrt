@@ -64,13 +64,8 @@ DEFAULT_PACKAGES.tweak:=\
 	block-mount \
 	default-settings-chn \
 	kmod-nf-nathelper \
-	kmod-nf-nathelper-extra \
-	luci-light \
-	luci-app-cpufreq \
-	luci-app-package-manager \
-	luci-compat \
-	luci-lib-base \
-	luci-lib-ipkg
+	luci \
+	luci-app-cpufreq
 
 ifneq ($(DUMP),)
   all: dumpinfo
@@ -108,6 +103,11 @@ ifeq ($(filter small_flash,$(FEATURES)),)
   DEFAULT_PACKAGES+=procd-ujail
 endif
 
+# legacy-sdcard upgrades need partx after writing the full image
+ifneq ($(filter legacy-sdcard,$(FEATURES)),)
+  DEFAULT_PACKAGES+=partx-utils
+endif
+
 # Add device specific packages (here below to allow device type set from subtarget)
 DEFAULT_PACKAGES += $(DEFAULT_PACKAGES.$(DEVICE_TYPE))
 
@@ -120,13 +120,6 @@ DEFAULT_PACKAGES += $(DEFAULT_PACKAGES.$(DEVICE_TYPE))
 # @param 1: Package list.
 ##
 filter_packages = $(filter-out -% $(patsubst -%,%,$(filter -%,$(1))),$(1))
-
-##@
-# @brief Append extra package dependencies.
-#
-# @param 1: Package list.
-##
-extra_packages = $(if $(filter wpad wpad-% nas,$(1)),iwinfo)
 
 define ProfileDefault
   NAME:=
@@ -144,7 +137,7 @@ define Profile
 	echo "Target-Profile: $(1)"; \
 	$(if $(PRIORITY), echo "Target-Profile-Priority: $(PRIORITY)"; ) \
 	echo "Target-Profile-Name: $(NAME)"; \
-	echo "Target-Profile-Packages: $(PACKAGES) $(call extra_packages,$(DEFAULT_PACKAGES) $(PACKAGES))"; \
+	echo "Target-Profile-Packages: $(PACKAGES)"; \
 	echo "Target-Profile-Description:"; \
 	echo "$$$$$$$$$(call shvar,Profile/$(1)/Description)"; \
 	echo "@@"; \
@@ -171,11 +164,12 @@ ifeq ($(TARGET_BUILD),1)
   endif
 endif
 
+GENERIC_PLATFORM_DIR := $(TOPDIR)/target/linux/generic
+
 ifneq ($(TARGET_BUILD)$(if $(DUMP),,1),)
   include $(INCLUDE_DIR)/kernel-version.mk
 endif
 
-GENERIC_PLATFORM_DIR := $(TOPDIR)/target/linux/generic
 GENERIC_BACKPORT_DIR := $(GENERIC_PLATFORM_DIR)/backport$(if $(wildcard $(GENERIC_PLATFORM_DIR)/backport-$(KERNEL_PATCHVER)),-$(KERNEL_PATCHVER))
 GENERIC_PATCH_DIR := $(GENERIC_PLATFORM_DIR)/pending$(if $(wildcard $(GENERIC_PLATFORM_DIR)/pending-$(KERNEL_PATCHVER)),-$(KERNEL_PATCHVER))
 GENERIC_HACK_DIR := $(GENERIC_PLATFORM_DIR)/hack$(if $(wildcard $(GENERIC_PLATFORM_DIR)/hack-$(KERNEL_PATCHVER)),-$(KERNEL_PATCHVER))
@@ -260,6 +254,15 @@ ifeq ($(DUMP),1)
   endif
   ifneq ($(findstring arm,$(ARCH)),)
     CPU_TYPE ?= xscale
+    ifneq ($(filter arm1136j-s arm1136jf-s arm1156t2-s,$(CPU_TYPE)),)
+      FEATURES += arm_v6
+    endif
+    ifneq ($(filter arm1176jz-s arm1176jzf-s mpcore mpcorenovfp,$(CPU_TYPE)),)
+      FEATURES += arm_v6k
+    endif
+    ifneq ($(filter cortex-a% generic-armv7-a marvell-pj4,$(CPU_TYPE)),)
+      FEATURES += arm_v7
+    endif
   endif
   ifeq ($(ARCH),powerpc)
     CPU_CFLAGS_603e:=-mcpu=603e
@@ -274,24 +277,16 @@ ifeq ($(DUMP),1)
     CPU_CFLAGS_e5500:=-mcpu=e5500
     CPU_CFLAGS_powerpc64:=-mcpu=powerpc64
   endif
-  ifeq ($(ARCH),sparc)
-    CPU_TYPE = sparc
-    CPU_CFLAGS_ultrasparc = -mcpu=ultrasparc
-  endif
   ifeq ($(ARCH),aarch64)
     CPU_TYPE ?= generic
     CPU_CFLAGS_generic = -mcpu=generic
     CPU_CFLAGS_cortex-a53 = -mcpu=cortex-a53
-  endif
-  ifeq ($(ARCH),arc)
-    CPU_TYPE ?= arc700
-    CPU_CFLAGS += -matomic
-    CPU_CFLAGS_arc700 = -mcpu=arc700
-    CPU_CFLAGS_archs = -mcpu=archs
+    CPU_CFLAGS_cortex-a72 = -mcpu=cortex-a72
+    CPU_CFLAGS_cortex-a76 = -mcpu=cortex-a76
   endif
   ifeq ($(ARCH),riscv64)
-    CPU_TYPE ?= riscv64
-    CPU_CFLAGS_riscv64:=-mabi=lp64d -march=rv64imafdc
+    CPU_TYPE ?= generic
+    CPU_CFLAGS_generic:=-mabi=lp64d -march=rv64gc
   endif
   ifeq ($(ARCH),loongarch64)
     CPU_TYPE ?= generic
@@ -321,7 +316,7 @@ ifeq ($(DUMP),1)
     ifneq ($(CONFIG_OF),)
       FEATURES += dt
     endif
-    ifneq ($(CONFIG_GENERIC_GPIO)$(CONFIG_GPIOLIB),)
+    ifneq ($(CONFIG_GPIOLIB),)
       FEATURES += gpio
     endif
     ifneq ($(CONFIG_PCI),)
@@ -330,8 +325,17 @@ ifeq ($(DUMP),1)
     ifneq ($(CONFIG_PCIEPORTBUS),)
       FEATURES += pcie
     endif
+    ifneq ($(CONFIG_PINCTRL),)
+      FEATURES += pinctrl
+    endif
+    ifneq ($(CONFIG_PM),)
+      FEATURES += pm
+    endif
     ifneq ($(CONFIG_PWM),)
       FEATURES += pwm
+    endif
+    ifneq ($(CONFIG_REGULATOR),)
+      FEATURES += regulator
     endif
     ifneq ($(CONFIG_USB)$(CONFIG_USB_SUPPORT),)
       ifneq ($(CONFIG_USB_ARCH_HAS_HCD)$(CONFIG_USB_EHCI_HCD),)
@@ -341,9 +345,6 @@ ifeq ($(DUMP),1)
     ifneq ($(CONFIG_PCMCIA)$(CONFIG_PCCARD),)
       FEATURES += pcmcia
     endif
-    ifneq ($(CONFIG_VGA_CONSOLE)$(CONFIG_FB),)
-      FEATURES += display
-    endif
     ifneq ($(CONFIG_RTC_CLASS),)
       FEATURES += rtc
     endif
@@ -352,15 +353,6 @@ ifeq ($(DUMP),1)
     endif
     ifneq ($(CONFIG_CPU_MIPS32_R2),)
       FEATURES += mips16
-    endif
-    ifneq ($(CONFIG_CPU_V6),)
-      FEATURES += arm_v6
-    endif
-    ifneq ($(CONFIG_CPU_V6K),)
-      FEATURES += arm_v6
-    endif
-    ifneq ($(CONFIG_CPU_V7),)
-      FEATURES += arm_v7
     endif
 
     # remove duplicates
@@ -375,7 +367,7 @@ endif
 
 define BuildTargets/DumpCurrent
   .PHONY: dumpinfo
-  dumpinfo : export DESCRIPTION=$$(Target/Description)
+  dumpinfo: $(call shexport,Target/Description)
   dumpinfo:
 	@echo 'Target: $(TARGETID)'; \
 	 echo 'Target-Board: $(BOARD)'; \
@@ -392,13 +384,13 @@ define BuildTargets/DumpCurrent
 	 echo 'Linux-Kernel-Arch: $(LINUX_KARCH)'; \
 	$(if $(SUBTARGET),,$(if $(DEFAULT_SUBTARGET), echo 'Default-Subtarget: $(DEFAULT_SUBTARGET)'; )) \
 	 echo 'Target-Description:'; \
-	 echo "$$$$DESCRIPTION"; \
+	 echo "$$$$$(call shvar,Target/Description);"; \
 	 echo '@@'; \
 	 $(if $(DEFAULT_PROFILE),echo 'Target-Default-Profile: $(DEFAULT_PROFILE)';) \
-	 echo 'Default-Packages: $(DEFAULT_PACKAGES) $(call extra_packages,$(DEFAULT_PACKAGES))'; \
+	 echo 'Default-Packages: $(DEFAULT_PACKAGES)'; \
 	 $(DUMPINFO)
 	$(if $(CUR_SUBTARGET),$(SUBMAKE) -r --no-print-directory -C image -s DUMP=1 SUBTARGET=$(CUR_SUBTARGET))
-	$(if $(SUBTARGET),,@$(foreach SUBTARGET,$(SUBTARGETS),$(SUBMAKE) -s DUMP=1 SUBTARGET=$(SUBTARGET); ))
+	$(if $(SUBTARGET),,@$(foreach SUBTARGET,$(SUBTARGETS),$(SUBMAKE) --no-print-directory -s DUMP=1 SUBTARGET=$(SUBTARGET); ))
 endef
 
 include $(INCLUDE_DIR)/kernel.mk
